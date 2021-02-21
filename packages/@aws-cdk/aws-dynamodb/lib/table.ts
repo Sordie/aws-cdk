@@ -13,6 +13,7 @@ import * as perms from './perms';
 import { ReplicaProvider } from './replica-provider';
 import { EnableScalingProps, IScalableTableAttribute } from './scalable-attribute-api';
 import { ScalableTableAttribute } from './scalable-table-attribute';
+import { TableTimeToLiveProvider } from './tabel-time-to-live-provider';
 
 // keep this import separate from other imports to reduce chance for merge conflicts with v2-main
 // eslint-disable-next-line no-duplicate-imports, import/order
@@ -898,15 +899,15 @@ abstract class TableBase extends Resource implements ITable {
    */
   private combinedGrant(
     grantee: iam.IGrantable,
-    opts: {keyActions?: string[], tableActions?: string[], streamActions?: string[]},
+    opts: { keyActions?: string[], tableActions?: string[], streamActions?: string[] },
   ): iam.Grant {
     if (opts.tableActions) {
       const resources = [this.tableArn,
-        Lazy.string({ produce: () => this.hasIndex ? `${this.tableArn}/index/*` : Aws.NO_VALUE }),
-        ...this.regionalArns,
-        ...this.regionalArns.map(arn => Lazy.string({
-          produce: () => this.hasIndex ? `${arn}/index/*` : Aws.NO_VALUE,
-        }))];
+      Lazy.string({ produce: () => this.hasIndex ? `${this.tableArn}/index/*` : Aws.NO_VALUE }),
+      ...this.regionalArns,
+      ...this.regionalArns.map(arn => Lazy.string({
+        produce: () => this.hasIndex ? `${arn}/index/*` : Aws.NO_VALUE,
+      }))];
       const ret = iam.Grant.addToPrincipal({
         grantee,
         actions: opts.tableActions,
@@ -931,7 +932,7 @@ abstract class TableBase extends Resource implements ITable {
       });
       return ret;
     }
-    throw new Error(`Unexpected 'action', ${ opts.tableActions || opts.streamActions }`);
+    throw new Error(`Unexpected 'action', ${opts.tableActions || opts.streamActions}`);
   }
 
   private cannedMetric(
@@ -1107,7 +1108,7 @@ export class Table extends TableBase {
       },
       sseSpecification,
       streamSpecification,
-      timeToLiveSpecification: props.timeToLiveAttribute ? { attributeName: props.timeToLiveAttribute, enabled: true } : undefined,
+      // timeToLiveSpecification: props.timeToLiveAttribute ? { attributeName: props.timeToLiveAttribute, enabled: true } : undefined,
     });
     this.table.applyRemovalPolicy(props.removalPolicy);
 
@@ -1137,6 +1138,8 @@ export class Table extends TableBase {
     if (props.replicationRegions && props.replicationRegions.length > 0) {
       this.createReplicaTables(props.replicationRegions);
     }
+
+    this.setTimeToLive(props.timeToLiveAttribute);
   }
 
   /**
@@ -1522,6 +1525,32 @@ export class Table extends TableBase {
       actions: ['dynamodb:*'],
       resources: this.regionalArns,
     }));
+  }
+
+  private setTimeToLive(timeToLiveAttribute?: string) {
+    const provider = TableTimeToLiveProvider.getOrCreate(this);
+
+    const onEventHandlerPolicy = new SourceTableAttachedPolicy(this, provider.onEventHandler.role!);
+    const isCompleteHandlerPolicy = new SourceTableAttachedPolicy(this, provider.isCompleteHandler.role!);
+
+    // Permissions
+    this.grant(onEventHandlerPolicy, 'dynamodb:*');
+    this.grant(isCompleteHandlerPolicy, 'dynamodb:*');
+
+    const timeToLive = new CustomResource(this, `${this.physicalName}TimeToLive`, {
+      serviceToken: provider.provider.serviceToken,
+      resourceType: 'Custom::DynamoDBTimeToLive',
+      properties: {
+        TableName: this.tableName,
+        TimeToLiveAttribute: timeToLiveAttribute,
+      },
+    });
+
+    timeToLive.node.addDependency(
+      onEventHandlerPolicy.policy,
+      isCompleteHandlerPolicy.policy,
+      this,
+    );
   }
 
   /**
