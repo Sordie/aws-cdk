@@ -110,6 +110,21 @@ export enum TableEncryption {
 }
 
 /**
+ * Properties of the optional time to live setting
+ */
+export interface TableTimeToLiveOptions {
+  /**
+   * The name of TTL attribute.
+   */
+  readonly attributeName: string;
+  /**
+   * Whether time to live is enabled or disabled.
+   * @default true
+   */
+  readonly enabled?: boolean;
+}
+
+/**
  * Properties of a DynamoDB Table
  *
  * Use {@link TableProps} for all table properties
@@ -193,8 +208,19 @@ export interface TableOptions {
   /**
    * The name of TTL attribute.
    * @default - TTL is disabled
+   * @deprecated Use {@link #timeToLive}
    */
   readonly timeToLiveAttribute?: string;
+
+  /**
+   * Enabled or disable the tables time to live attribute. Please note that to update the
+   * ttl you will first need to remove the existing ttl. To remove an already set ttl you
+   * will need to explicitly disable it. For more information have a look at
+   * https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/TTL.html
+   *
+   * @default - No time to live will be specified
+   */
+  readonly timeToLive?: TableTimeToLiveOptions;
 
   /**
    * When an item in the table is modified, StreamViewType determines what information
@@ -1107,7 +1133,7 @@ export class Table extends TableBase {
       },
       sseSpecification,
       streamSpecification,
-      timeToLiveSpecification: props.timeToLiveAttribute ? { attributeName: props.timeToLiveAttribute, enabled: true } : undefined,
+      timeToLiveSpecification: this.validateTimeToLiveOptions(props.timeToLive, props.timeToLiveAttribute),
     });
     this.table.applyRemovalPolicy(props.removalPolicy);
 
@@ -1359,6 +1385,25 @@ export class Table extends TableBase {
 
     // store all non-key attributes
     nonKeyAttributes.forEach(att => this.nonKeyAttributes.add(att));
+  }
+
+  /**
+   * Validate that only either timeToLive or timeToLiveAttribute is set.
+   * @param timeToLive value of props.timeToLive
+   * @param timeToLiveAttribute value of props.timeToLiveAttribute
+   * @return the resulting CfnTable.TimeToLiveSpecificationProperty
+   */
+  private validateTimeToLiveOptions(
+    timeToLive?: TableTimeToLiveOptions,
+    timeToLiveAttribute?: string,
+  ): CfnTable.TimeToLiveSpecificationProperty | undefined {
+    if (timeToLive && timeToLiveAttribute) {
+      throw new Error('Defined time to live twice. Please use only "timeToLive" as "timeToLiveAttribute" has been deprecated.');
+    }
+    if (timeToLive) {
+      return { attributeName: timeToLive.attributeName, enabled: timeToLive.enabled ?? true };
+    }
+    return timeToLiveAttribute ? { attributeName: timeToLiveAttribute, enabled: true } : undefined;
   }
 
   private buildIndexKeySchema(partitionKey: Attribute, sortKey?: Attribute): CfnTable.KeySchemaProperty[] {
