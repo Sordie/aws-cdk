@@ -903,11 +903,11 @@ abstract class TableBase extends Resource implements ITable {
   ): iam.Grant {
     if (opts.tableActions) {
       const resources = [this.tableArn,
-        Lazy.string({ produce: () => this.hasIndex ? `${this.tableArn}/index/*` : Aws.NO_VALUE }),
-        ...this.regionalArns,
-        ...this.regionalArns.map(arn => Lazy.string({
-          produce: () => this.hasIndex ? `${arn}/index/*` : Aws.NO_VALUE,
-        }))];
+      Lazy.string({ produce: () => this.hasIndex ? `${this.tableArn}/index/*` : Aws.NO_VALUE }),
+      ...this.regionalArns,
+      ...this.regionalArns.map(arn => Lazy.string({
+        produce: () => this.hasIndex ? `${arn}/index/*` : Aws.NO_VALUE,
+      }))];
       const ret = iam.Grant.addToPrincipal({
         grantee,
         actions: opts.tableActions,
@@ -1136,7 +1136,7 @@ export class Table extends TableBase {
     }
 
     if (props.replicationRegions && props.replicationRegions.length > 0) {
-      this.createReplicaTables(props.replicationRegions);
+      this.createReplicaTables(id, props.replicationRegions);
     }
 
     this.setTimeToLive(props.timeToLiveAttribute);
@@ -1527,7 +1527,7 @@ export class Table extends TableBase {
     }));
   }
 
-  private setTimeToLive(timeToLiveAttribute?: string) {
+  private setTimeToLive(id: string, timeToLiveAttribute?: string) {
     const provider = TableTimeToLiveProvider.getOrCreate(this);
 
     const onEventHandlerPolicy = new SourceTableAttachedPolicy(this, provider.onEventHandler.role!);
@@ -1537,7 +1537,7 @@ export class Table extends TableBase {
     this.grant(onEventHandlerPolicy, 'dynamodb:*');
     this.grant(isCompleteHandlerPolicy, 'dynamodb:*');
 
-    const timeToLive = new CustomResource(this, `${this.physicalName}TimeToLive`, {
+    const timeToLive = new CustomResource(this, `${id}TimeToLive`, {
       serviceToken: provider.provider.serviceToken,
       resourceType: 'Custom::DynamoDBTimeToLive',
       properties: {
